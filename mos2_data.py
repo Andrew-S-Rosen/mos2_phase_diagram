@@ -33,9 +33,7 @@ def read_excel_data():
 	return E_Moedge, E_Sedge, S_vib_Moedge, S_vib_Sedge, ref_species
 
 def freq_to_energy(freqs):
-#Converts frequencies to energies
-	vib_energies = [(100*h*c/e)*freq for freq in freqs]
-	return vib_energies
+	return [(100*h*c/e)*freq for freq in freqs]
 
 def get_mu_ref(species,E_DFT,T):
 #Calculates mu^0 from tabulated data
@@ -44,12 +42,11 @@ def get_mu_ref(species,E_DFT,T):
 		ValueError('Absolute temperature in K must be used')
 	if species == 'H2':
 		if T <= 1000:
-			shomate_params = pd.read_excel(excel_path,
-				tabulated_data_sheet).values[0:8]
-		elif T > 1000 and T <= 2500:
+			shomate_params = pd.read_excel(excel_path, tabulated_data_sheet).values[:8]
+		elif T <= 2500:
 			shomate_params = pd.read_excel(excel_path,
 				tabulated_data_sheet).values[10:18]
-		elif T > 2500:
+		else:
 			shomate_params = pd.read_excel(excel_path,
 				tabulated_data_sheet).values[20:28]
 		h0 = pd.read_excel(excel_path,
@@ -60,7 +57,7 @@ def get_mu_ref(species,E_DFT,T):
 		if T <= 1400:
 			shomate_params = pd.read_excel(excel_path,
 				tabulated_data_sheet).values[30:38]
-		elif T > 1400:
+		else:
 			shomate_params = pd.read_excel(excel_path,
 				tabulated_data_sheet).values[40:48]
 		h0 = pd.read_excel(excel_path,
@@ -81,44 +78,40 @@ def get_mu_ref(species,E_DFT,T):
 	h = (A*t+B*t**2/2+C*t**3/3+D*t**4/4-E/t+F-H)*kJmoltoeV
 	dh = h - h0
 	s = (A*np.log(t)+B*t+C*t**2/2+D*t**3/3-E/(2*t**2)+G)*kJmoltoeV/1000.0
-	mu_0 = dh - T*s + E_ZPE + E_DFT	
-	return mu_0
+	return dh - T*s + E_ZPE + E_DFT
 
 def get_zpe(vib_energies):
-#Calculate ZPE
-	ZPE = 0.5*np.sum(vib_energies)
-	return ZPE
+	return 0.5*np.sum(vib_energies)
 
 def get_internal_energy(vib_energies,E_DFT):
 #Calculate U
 	ZPE = get_zpe(vib_energies)
-	vib_sum = 0
-	for vib_energy in vib_energies:
-		vib_sum += vib_energy/(np.exp(vib_energy/(k_B*T))-1.0)
-	U = E_DFT + ZPE + vib_sum
-	return U
+	vib_sum = sum(
+		vib_energy / (np.exp(vib_energy / (k_B * T)) - 1.0)
+		for vib_energy in vib_energies
+	)
+	return E_DFT + ZPE + vib_sum
 
 def get_entropy(vib_energies):
-#Calculate S
-	vib_sum = 0
-	for vib_energy in vib_energies:
-		vib_sum += (vib_energy/(k_B*T*(np.exp(vib_energy/(k_B*T))-1.0))
-			- np.log(1.0-np.exp(-vib_energy/(k_B*T))))
-	S = k_B*vib_sum
-	return S
+	vib_sum = sum(
+		(
+			vib_energy / (k_B * T * (np.exp(vib_energy / (k_B * T)) - 1.0))
+			- np.log(1.0 - np.exp(-vib_energy / (k_B * T)))
+		)
+		for vib_energy in vib_energies
+	)
+	return k_B*vib_sum
 
 def get_helmholtz(vib_energies,E_DFT):
 #Calculate F (if E_DFT = 0, this is F^vib)
 	U = get_internal_energy(vib_energies,E_DFT)
 	S = get_entropy(vib_energies)
-	F = U-T*S
-	return F
+	return U-T*S
 
 def freq_to_F_vib_H(H_vib):
 #Gets vibrational frequencies of H*
 	vib_energies = freq_to_energy(H_vib)
-	F_vib_H = get_helmholtz(vib_energies,0)
-	return F_vib_H
+	return get_helmholtz(vib_energies,0)
 
 def freq_to_F_vib_S(S_vib,n_S):
 #Gets vibrational frequencies of S*
@@ -179,7 +172,7 @@ def run_thermo():
 	F_vib_H_Moedge[6,:] = F_vib_H_Mo_bridge*n_H_Moedge
 
 	F_vib_H_Sedge[0,:] = F_vib_H_Mo_bridge*n_H_Sedge
-	
+
 	F_vib_H_Sedge[1,1] = F_vib_H_Mo_bridge
 	F_vib_H_Sedge[1,2] = F_vib_H_Mo_bridge*2
 	F_vib_H_Sedge[1,3] = F_vib_H_Mo_bridge*2+F_vib_H_S_edge
@@ -199,10 +192,9 @@ def run_thermo():
 	F_vib_H_Sedge[5,3] = F_vib_H_Mo_inter+F_vib_H_S_basal*2
 
 	F_vib_H_Sedge[6,:] = F_vib_H_S_basal*n_H_Sedge
-	
+
 	F_Moedge = E_Moedge+F_vib_S_Moedge[:,np.newaxis]+F_vib_H_Moedge
 	F_Sedge = E_Sedge+F_vib_S_Sedge[:,np.newaxis]+F_vib_H_Sedge
-	F_Moedge = F_Moedge - F_Moedge[0,0]
 	F_Sedge = F_Sedge - F_Sedge[-1,0]
 
 	#Calculate chemical potentials
@@ -227,6 +219,7 @@ def run_thermo():
 	if delta_mu_H > 0:
 		print('Note: MoS2 is potentially unstable for this delta mu_H')
 
+	F_Moedge = F_Moedge - F_Moedge[0,0]
 	#Calculate grand potentials
 	phi_Moedge = F_Moedge - n_S_Moedge[:,np.newaxis]*mu_S - n_H_Moedge*mu_H
 	phi_Moedge = phi_Moedge - phi_Moedge[0,0]
@@ -236,17 +229,17 @@ def run_thermo():
 	#Determine most stable coverages and save results
 	rc_Moedge = np.unravel_index(np.nanargmin(phi_Moedge),phi_Moedge.shape)
 	rc_Sedge = np.unravel_index(np.nanargmin(phi_Sedge),phi_Sedge.shape)
-	print('T = '+str(T)+' K')
-	print('f_HS/f^0 = '+str(f_H2))
-	print('f_H2S/f_H2 = '+str(f_H2S/f_H2))
-	print('delta mu_S = '+str(delta_mu_S))
-	print('delta mu_H = '+str(delta_mu_H))
-	print('Most stable coverage on Mo-edge: theta_S = '
-		+str(np.round(n_S_Moedge[rc_Moedge[0]]/n_S_100,2))+', theta_H = '
-		+str(np.round(n_H_Moedge[rc_Moedge[1]]/n_H_100,2)))
-	print('Most stable coverage on S-edge: theta_S = '
-		+str(np.round(n_S_Sedge[rc_Sedge[0]]/n_S_100,2))
-		+', theta_H = '+str(np.round(n_H_Sedge[rc_Sedge[1]]/n_H_100,2)))
+	print(f'T = {str(T)} K')
+	print(f'f_HS/f^0 = {str(f_H2)}')
+	print(f'f_H2S/f_H2 = {str(f_H2S / f_H2)}')
+	print(f'delta mu_S = {str(delta_mu_S)}')
+	print(f'delta mu_H = {str(delta_mu_H)}')
+	print(
+		f'Most stable coverage on Mo-edge: theta_S = {str(np.round(n_S_Moedge[rc_Moedge[0]] / n_S_100, 2))}, theta_H = {str(np.round(n_H_Moedge[rc_Moedge[1]] / n_H_100, 2))}'
+	)
+	print(
+		f'Most stable coverage on S-edge: theta_S = {str(np.round(n_S_Sedge[rc_Sedge[0]] / n_S_100, 2))}, theta_H = {str(np.round(n_H_Sedge[rc_Sedge[1]] / n_H_100, 2))}'
+	)
 	return F_Moedge, F_Sedge, phi_Moedge, phi_Sedge, delta_mu_S, delta_mu_H
 
 def write_results(F_Moedge, F_Sedge, phi_Moedge, phi_Sedge):
